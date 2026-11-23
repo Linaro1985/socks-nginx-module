@@ -80,6 +80,29 @@ location / {
 }
 ```
 
+## Limitations
+
+The module carries its own copies of the nginx proxy and upstream code, so a few
+newer nginx features are not available where `socks_pass` is used:
+
+- `proxy_http_version 2` is rejected at configuration time. Requests are sent
+  to the upstream over HTTP/1.0 or HTTP/1.1.
+- `proxy_pass_trailers on` is rejected at configuration time; upstream trailers
+  are not forwarded.
+- Early Hints (103) responses from an upstream are treated as final responses.
+- Upstream retries (`proxy_next_upstream`) reconnect to the SOCKS proxy without
+  repeating the SOCKS handshake, so they do not work through the tunnel; use
+  `proxy_next_upstream off` for locations that use `socks_pass`.
+
+Both rejected directives keep working exactly as in nginx in locations that do
+not use `socks_pass`.
+
+> **Known issue (pre-existing).** The target host is taken from the proxy `Host`
+> header, which includes a non-default port (`host:port`). A `proxy_pass` URL
+> with an explicit port other than 80/443 therefore sends an invalid SOCKS
+> target and fails with "host unreachable". This is unrelated to the nginx
+> 1.30 synchronization and is not fixed here.
+
 ## Development
 
 ### Running tests
