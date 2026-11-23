@@ -883,7 +883,7 @@ ngx_http_socks_upstream_connect(ngx_http_request_t *r, ngx_http_upstream_t *u)
     clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
     u->writer.limit = clcf->sendfile_max_chunk;
 
-    if (u->request_sent) {
+    if (u->request_sent || u->response_received) {
         if (ngx_http_upstream_reinit(r, u) != NGX_OK) {
             ngx_http_upstream_finalize_request(r, u,
                                                NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -912,6 +912,7 @@ ngx_http_socks_upstream_connect(ngx_http_request_t *r, ngx_http_upstream_t *u)
     u->request_sent = 0;
     u->request_body_sent = 0;
     u->request_body_blocked = 0;
+    u->response_received = 0;
 
     if (rc == NGX_AGAIN) {
         ngx_add_timer(c->write, u->conf->connect_timeout);
@@ -1652,6 +1653,7 @@ ngx_http_socks_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 {
     ngx_http_socks_loc_conf_t *prev = parent;
     ngx_http_socks_loc_conf_t *conf = child;
+    ngx_http_core_loc_conf_t  *clcf;
 
     if (conf->proxy_lengths == NULL) {
         conf->vars = prev->vars;
@@ -1661,6 +1663,35 @@ ngx_http_socks_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_str_value(conf->username, prev->username, "");
     ngx_conf_merge_str_value(conf->password, prev->password, "");
+
+    /*
+     * Reject proxy settings that the copied proxy code cannot honour, but
+     * only where "socks_pass" is actually in effect: without it the usual
+     * proxy module handles the request and both settings work as in nginx.
+     */
+    clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
+
+    if (clcf->handler == ngx_http_socks_handler) {
+        ngx_http_proxy_loc_conf_t  *plcf;
+
+        plcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_proxy_module);
+
+#if (NGX_HTTP_V2)
+        if (plcf->http_version == NGX_HTTP_VERSION_20) {
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                               "\"proxy_http_version 2\" is not supported "
+                               "with \"socks_pass\"");
+            return NGX_CONF_ERROR;
+        }
+#endif
+
+        if (plcf->upstream.pass_trailers) {
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                               "\"proxy_pass_trailers\" is not supported "
+                               "with \"socks_pass\"");
+            return NGX_CONF_ERROR;
+        }
+    }
 
     return NGX_CONF_OK;
 }
