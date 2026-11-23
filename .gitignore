@@ -1,1 +1,4 @@
 debug/load_module.conf
+
+__pycache__/
+*.pyc

@@ -1,0 +1,293 @@
+# nginx configuration template for the local socks-nginx-module harness.
+#
+# run.sh replaces __RUNTIME__ with an absolute runtime directory, writes
+# load_module.conf next to the rendered file, and optionally fills in
+# guard.conf with /version2 and /trailers locations.
+#
+# Do not use this file directly: it is a template.
+
+include load_module.conf;
+
+pid __RUNTIME__/nginx.pid;
+error_log stderr warn;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    access_log off;
+    default_type text/plain;
+    server_tokens off;
+
+    # All temporary files live under the disposable runtime directory.
+    client_body_temp_path __RUNTIME__/tmp/client_body;
+    proxy_temp_path       __RUNTIME__/tmp/proxy;
+    fastcgi_temp_path     __RUNTIME__/tmp/fastcgi;
+    uwsgi_temp_path       __RUNTIME__/tmp/uwsgi;
+    scgi_temp_path        __RUNTIME__/tmp/scgi;
+
+    proxy_cache_path __RUNTIME__/cache keys_zone=one:10m;
+
+    # Empty by default.  run.sh may put a 18083 server block here for the
+    # optional guard-break tests; the main config never relies on it.
+    include guard.conf;
+
+    # ------------------------------------------------------------------
+    # Server A: main proxy tests and the cache-populating X-Accel request.
+    # ------------------------------------------------------------------
+    server {
+        listen 127.0.0.1:18081;
+        server_name localhost;
+
+        location = /ok {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            proxy_pass http://127.0.0.1:18080/ok;
+            socks_pass socks5://127.0.0.1:11080;
+        }
+
+        location = /charset-bad {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            proxy_pass http://127.0.0.1:18080/charset-bad;
+            socks_pass socks5://127.0.0.1:11080;
+        }
+
+        location = /charset-good {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            proxy_pass http://127.0.0.1:18080/charset-good;
+            socks_pass socks5://127.0.0.1:11080;
+        }
+
+        location = /big {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            proxy_pass http://127.0.0.1:18080/big;
+            socks_pass socks5://127.0.0.1:11080;
+        }
+
+        location = /chunked {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            proxy_pass http://127.0.0.1:18080/chunked;
+            socks_pass socks5://127.0.0.1:11080;
+        }
+
+        location = /split-bad {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            proxy_pass http://127.0.0.1:18080/split-status-bad;
+            socks_pass socks5://127.0.0.1:11080;
+        }
+
+        location = /split-good {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            proxy_pass http://127.0.0.1:18080/split-status-good;
+            socks_pass socks5://127.0.0.1:11080;
+        }
+
+        location = /auth {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            proxy_pass http://127.0.0.1:18080/ok;
+            socks_pass socks5://127.0.0.1:11081;
+            socks_username testuser;
+            socks_password testpass;
+        }
+
+        # Regression for nginx bcb41c91: when try_files finds an existing
+        # file it replaces r->uri in place, so r->uri ("/abc") becomes
+        # shorter than the location prefix ("/ttll/").  The old code still
+        # used the location length and overran the URI buffer.
+        location /ttll/ {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            root __RUNTIME__/www;
+            try_files /abc /fallback;
+            proxy_pass http://127.0.0.1:18080/echo;
+            socks_pass socks5://127.0.0.1:11080;
+        }
+
+        location = /auth-bad {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            proxy_pass http://127.0.0.1:18080/ok;
+            socks_pass socks5://127.0.0.1:11081;
+            socks_username wrong;
+            socks_password wrong;
+        }
+
+        location = /ssl {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            proxy_pass https://127.0.0.1:18443/ok;
+            proxy_ssl_verify off;
+            proxy_ssl_server_name on;
+            socks_pass socks5://127.0.0.1:11080;
+        }
+
+        location = /premature {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            proxy_pass https://127.0.0.1:18444/;
+            proxy_ssl_verify off;
+            socks_pass socks5://127.0.0.1:11080;
+        }
+
+        location = /proxy-store {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            proxy_pass http://127.0.0.1:18080/store-empty;
+            proxy_store __RUNTIME__/store$uri;
+            proxy_store_access user:rw;
+            socks_pass socks5://127.0.0.1:11080;
+        }
+
+        location = /store {
+            return 403;
+        }
+
+        location = /cache {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            proxy_pass http://127.0.0.1:18080/cache-control-huge;
+            proxy_cache one;
+            proxy_cache_key "$request_uri$is_args$args";
+            proxy_cache_valid 200 10s;
+            add_header X-Cache-Status $upstream_cache_status always;
+            socks_pass socks5://127.0.0.1:11080;
+        }
+
+        # X-Accel-Redirect is ignored on this listener, so the response is
+        # returned to the client and stored in the shared cache zone.
+        location = /xaccel {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            proxy_pass http://127.0.0.1:18080/xaccel;
+            proxy_ignore_headers X-Accel-Redirect;
+            proxy_cache one;
+            proxy_cache_key "$request_uri$is_args$args";
+            proxy_cache_valid 200 10m;
+            add_header X-Cache-Status $upstream_cache_status always;
+            socks_pass socks5://127.0.0.1:11080;
+        }
+
+        location = /internal-target {
+            default_type text/plain;
+            return 200 "redirected";
+        }
+
+        location / {
+            return 404;
+        }
+    }
+
+    # ------------------------------------------------------------------
+    # Server B: same shared cache, X-Accel-Redirect NOT ignored.
+    # A request here for the same /xaccel URI should hit the cache populated
+    # by server A and then perform the internal redirect.  This is the
+    # guard/crash regression scenario.
+    # ------------------------------------------------------------------
+    server {
+        listen 127.0.0.1:18082;
+        server_name localhost;
+
+        location = /xaccel {
+            proxy_next_upstream off;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 3s;
+            proxy_read_timeout 3s;
+            send_timeout 3s;
+            proxy_pass http://127.0.0.1:18080/xaccel;
+            proxy_cache one;
+            proxy_cache_key "$request_uri$is_args$args";
+            proxy_cache_valid 200 10m;
+            add_header X-Cache-Status $upstream_cache_status always;
+            socks_pass socks5://127.0.0.1:11080;
+        }
+
+        location = /internal-target {
+            default_type text/plain;
+            return 200 "redirected";
+        }
+
+        location / {
+            return 404;
+        }
+    }
+
+    # ------------------------------------------------------------------
+    # Deliberately NOT in the main template:
+    #
+    # location = /version2 {
+    #     proxy_pass http://127.0.0.1:18080/ok;
+    #     proxy_http_version 2;
+    #     socks_pass socks5://127.0.0.1:11080;
+    # }
+    #
+    # location = /trailers {
+    #     proxy_pass http://127.0.0.1:18080/ok;
+    #     proxy_pass_trailers on;
+    #     socks_pass socks5://127.0.0.1:11080;
+    # }
+    #
+    # location = /plain-no-socks {
+    #     proxy_pass http://127.0.0.1:18080/ok;
+    #     proxy_http_version 2;
+    # }
+    #
+    # run.sh probes these in standalone "nginx -t" configs and can append
+    # them through guard.conf.  They are omitted here because they are
+    # expected to be rejected by a correctly guarded socks module, and
+    # proxy_http_version 2 is unavailable when nginx is built without
+    # NGX_HTTP_V2.
+    # ------------------------------------------------------------------
+}
