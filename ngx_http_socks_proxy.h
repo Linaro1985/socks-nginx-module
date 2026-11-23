@@ -6,7 +6,9 @@
  * Copyright (C) Nginx, Inc.
  *
  * Adapted from nginx 1.30 (the proxy structures themselves come from
- * <ngx_http_proxy_module.h>, which nginx exports since 1.29.4)
+ * <ngx_http_proxy_module.h>, which nginx exports since 1.29.4), with
+ * selected security and reliability fixes backported from nginx 1.30.7
+ * (see CHANGELOG.md)
  */
 
 
@@ -68,7 +70,7 @@ static char  ngx_http_proxy_version_11[] = " HTTP/1.1" CRLF;
 static ngx_int_t
 ngx_http_proxy_create_request(ngx_http_request_t *r)
 {
-    size_t                        len, uri_len, loc_len, body_len,
+    size_t                        len, uri_len, loc_len, body_len, headers_len,
                                   key_len, val_len;
     uintptr_t                     escape;
     ngx_buf_t                    *b;
@@ -122,6 +124,8 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
     escape = 0;
     loc_len = 0;
     unparsed_uri = 0;
+    body_len = 0;
+    headers_len = 0;
 
     if (plcf->proxy_lengths && ctx->vars.uri.len) {
         uri_len = ctx->vars.uri.len;
@@ -131,8 +135,8 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
         uri_len = r->unparsed_uri.len;
 
     } else {
-        loc_len = (r->valid_location && ctx->vars.uri.len) ?
-                      plcf->location.len : 0;
+        loc_len = (r->valid_location && ctx->vars.uri.len)
+                  ? ngx_min(plcf->location.len, r->uri.len) : 0;
 
         if (r->quoted_uri || r->internal) {
             escape = 2 * ngx_escape_uri(NULL, r->uri.data + loc_len,
@@ -160,7 +164,6 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
         le.ip = plcf->body_lengths->elts;
         le.request = r;
         le.flushed = 1;
-        body_len = 0;
 
         while (*(uintptr_t *) le.ip) {
             lcode = *(ngx_http_script_len_code_pt *) le.ip;
@@ -196,8 +199,10 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
             continue;
         }
 
-        len += key_len + sizeof(": ") - 1 + val_len + sizeof(CRLF) - 1;
+        headers_len += key_len + sizeof(": ") - 1 + val_len + sizeof(CRLF) - 1;
     }
+
+    len += headers_len;
 
 
     if (plcf->upstream.pass_request_headers) {
@@ -290,6 +295,7 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
 
     e.ip = headers->values->elts;
     e.pos = b->last;
+    e.end = b->last + headers_len;
     e.request = r;
     e.flushed = 1;
 
@@ -322,6 +328,14 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
         code = *(ngx_http_script_code_pt *) e.ip;
         code((ngx_http_script_engine_t *) &e);
 
+        if (e.status) {
+            return NGX_ERROR;
+        }
+
+        if (ngx_http_script_check_length(&e, 2) != NGX_OK) {
+            return NGX_ERROR;
+        }
+
         *e.pos++ = ':'; *e.pos++ = ' ';
 
         while (*(uintptr_t *) e.ip) {
@@ -329,6 +343,14 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
             code((ngx_http_script_engine_t *) &e);
         }
         e.ip += sizeof(uintptr_t);
+
+        if (e.status) {
+            return NGX_ERROR;
+        }
+
+        if (ngx_http_script_check_length(&e, 2) != NGX_OK) {
+            return NGX_ERROR;
+        }
 
         *e.pos++ = CR; *e.pos++ = LF;
     }
@@ -380,11 +402,16 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
     if (plcf->body_values) {
         e.ip = plcf->body_values->elts;
         e.pos = b->last;
+        e.end = b->last + body_len;
         e.skip = 0;
 
         while (*(uintptr_t *) e.ip) {
             code = *(ngx_http_script_code_pt *) e.ip;
             code((ngx_http_script_engine_t *) &e);
+        }
+
+        if (e.status) {
+            return NGX_ERROR;
         }
 
         b->last = e.pos;
@@ -647,6 +674,10 @@ ngx_http_proxy_process_status_line(ngx_http_request_t *r)
 
     u = r->upstream;
 
+    if (r->state == 0) {
+        r->header_name_start = u->buffer.pos;
+    }
+
     rc = ngx_http_parse_status_line(r, &u->buffer, &ctx->status);
 
     if (rc == NGX_AGAIN) {
@@ -654,6 +685,7 @@ ngx_http_proxy_process_status_line(ngx_http_request_t *r)
     }
 
     if (rc == NGX_ERROR) {
+        u->buffer.pos = r->header_name_start;
 
 #if (NGX_HTTP_CACHE)
 
@@ -908,7 +940,7 @@ ngx_http_proxy_input_filter_init(void *data)
         /* chunked */
 
         u->pipe->input_filter = ngx_http_proxy_chunked_filter;
-        u->pipe->length = 3; /* "0" LF LF */
+        u->pipe->length = 5; /* "0" CRLF CRLF */
 
         u->input_filter = ngx_http_proxy_non_buffered_chunked_filter;
         u->length = 1;
