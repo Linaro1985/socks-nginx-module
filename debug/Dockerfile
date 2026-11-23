@@ -16,7 +16,7 @@ WORKDIR /root
 
 COPY .gdbinit .
 
-ARG NGX_VERSION=1.26.3
+ARG NGX_VERSION=1.30.7
 
 RUN wget -q https://nginx.org/download/nginx-$NGX_VERSION.tar.gz && \
     tar xzf nginx-$NGX_VERSION.tar.gz && \

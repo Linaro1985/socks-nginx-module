@@ -1,4 +1,4 @@
-NGX_VERSION  := 1.26.3
+NGX_VERSION  := 1.30.7
 NGX_SRC      := /root/nginx-$(NGX_VERSION)
 MODULE_SRC   := ngx_http_socks_module.c
 COMPOSE      := docker compose -f debug/docker-compose.yml
@@ -97,7 +97,7 @@ cppcheck: image
 		cppcheck /code/$(MODULE_SRC) \
 			--enable=warning,performance,portability \
 			--error-exitcode=1 \
-			--suppress="*:/code/ngx_http_proxy_module.h" \
+			--suppress="*:/code/ngx_http_socks_proxy.h" \
 			--suppress="*:/code/ngx_http_socks_upstream.h" \
 			--suppress=toomanyconfigs \
 			-I $(NGX_SRC)/src/core \

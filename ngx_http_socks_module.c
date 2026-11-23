@@ -6,7 +6,7 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
 
-#include "ngx_http_proxy_module.h"
+#include "ngx_http_socks_proxy.h"
 #include "ngx_http_socks_upstream.h"
 
 #pragma GCC diagnostic pop
@@ -200,6 +200,9 @@ ngx_http_socks_handler(ngx_http_request_t *r)
     if (pctx == NULL) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
+
+    /* $proxy_internal_host (default Host header) is empty without it */
+    pctx->legacy = 1;
 
     ngx_http_set_ctx(r, pctx, ngx_http_proxy_module);
 

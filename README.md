@@ -11,7 +11,7 @@ An nginx module that adds SOCKS5 proxy support to `proxy_pass`.
 
 ## Building
 
-Supports nginx stable branches **1.26.x, 1.28.x, and 1.30.x**. PCRE2 is required.
+Requires nginx **1.30 or newer** (the module uses the proxy module structures that nginx exports since 1.29.4) and PCRE2.
 
 ```bash
 git clone https://github.com/dannote/socks-nginx-module

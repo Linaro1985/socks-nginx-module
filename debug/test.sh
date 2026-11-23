@@ -23,7 +23,7 @@ sleep 2
 echo "load_module $BUILD_DIR/ngx_http_socks_module.so;" > load_module.conf
 
 docker compose run -d -p 8080:80 --name socks-test-nginx nginx bash -c "
-  cd /root/nginx-1.26.3 &&
+  cd /root/nginx-1.30.7 &&
   mkdir -p logs &&
   env $NGINX_ENV $BUILD_DIR/nginx -c /code/debug/nginx-test.conf -p \$PWD -g 'daemon off;'
 "
